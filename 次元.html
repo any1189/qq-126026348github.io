@@ -40,7 +40,9 @@
         .content-card { background: white; border-radius: 12px; overflow: hidden; box-shadow: 0 3px 10px rgba(0,0,0,0.08); transition: transform 0.3s; cursor: pointer; }
         .content-card:hover { transform: translateY(-3px); }
         .content-cover { width: 100%; height: 280px; background: #f0f0f0; background-size: cover; background-position: center; }
-        .content-title { padding: 15px; text-align: center; font-weight: 600; }
+        .content-info { padding: 15px; }
+        .content-title { font-weight: 600; margin-bottom: 8px; }
+        .content-price { color: #f56565; font-weight: bold; }
         /* 积分任务页（独立） */
         .points-page { background: white; border-radius: 12px; padding: 25px; margin-bottom: 30px; box-shadow: 0 3px 10px rgba(0,0,0,0.08); display: none; }
         .points-page h2 { margin-bottom: 20px; color: #2d3748; }
@@ -147,9 +149,9 @@
             <label>平台公告</label>
             <input type="text" class="form-control" id="notice-input" placeholder="输入公告内容">
         </div>
-        <!-- 内容上传 -->
+        <!-- 内容上传（新增【积分价格】输入框） -->
         <div class="form-group">
-            <h3>上传内容</h3>
+            <h3>上传内容（设置解锁积分）</h3>
             <div class="form-row">
                 <div class="form-col">
                     <label>内容标题</label>
@@ -173,6 +175,12 @@
                     <input type="text" class="form-control" id="content-cover" placeholder="输入图片链接">
                 </div>
                 <div class="form-col">
+                    <label>解锁积分（必填）</label>
+                    <input type="number" class="form-control" id="content-price" placeholder="设置需要多少积分" min="1" value="10">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-col" style="flex: 2;">
                     <label>访问链接</label>
                     <input type="text" class="form-control" id="content-link" placeholder="输入跳转链接">
                 </div>
@@ -216,7 +224,7 @@
         </div>
         <!-- 用户管理（设置积分） -->
         <div class="user-management">
-            <h3>用户管理</h3>
+            <h3>用户管理（设置积分）</h3>
             <table class="user-table" id="user-table">
                 <thead>
                     <tr>
@@ -236,7 +244,7 @@
         const initSystemData = () => {
             const defaultData = {
                 notice: '欢迎使用资源平台，完成任务获取积分解锁内容~',
-                contents: [],
+                contents: [], // 新增content.price字段（积分价格）
                 tasks: [
                     { name: '每日签到', link: '#' },
                     { name: '邀请好友', link: '#' },
@@ -250,22 +258,20 @@
             };
 
             if (!localStorage.getItem('platformSystem')) {
-                // 首次初始化：直接用新密码
                 localStorage.setItem('platformSystem', JSON.stringify(defaultData));
             } else {
-                // 已有旧数据：强制更新管理员密码，补充缺失字段
                 const data = JSON.parse(localStorage.getItem('platformSystem'));
-                // 找到管理员账号并更新密码
+                // 给旧内容补充price字段（默认10积分）
+                data.contents = data.contents.map(item => ({ ...item, price: item.price || 10 }));
+                // 给用户补充lastCheckinDate
+                data.users = data.users.map(user => ({ ...user, lastCheckinDate: user.lastCheckinDate || '' }));
+                // 更新管理员密码
                 const adminIndex = data.users.findIndex(u => u.username === 'admin' && u.role === 'admin');
                 if (adminIndex > -1) {
-                    data.users[adminIndex].password = '18046156515abc'; // 强制覆盖旧密码
-                    data.users[adminIndex].lastCheckinDate = data.users[adminIndex].lastCheckinDate || '';
+                    data.users[adminIndex].password = '18046156515abc';
                 } else {
-                    // 若管理员账号丢失，重新添加
                     data.users.push(defaultData.users[0]);
                 }
-                // 给所有用户补充lastCheckinDate字段
-                data.users = data.users.map(user => ({ ...user, lastCheckinDate: user.lastCheckinDate || '' }));
                 saveSystemData(data);
             }
         };
@@ -296,15 +302,14 @@
                 regForm.classList.add('active');
             }
         };
-        // 用户注册（用户名重复提示"用户名已存在"）
+        // 用户注册
         const userRegister = () => {
             const username = document.getElementById('reg-username').value.trim();
             const password = document.getElementById('reg-pwd').value.trim();
             if (!username || !password) return alert('用户名和密码不能为空！');
 
             const data = getSystemData();
-            const userExists = data.users.some(u => u.username === username);
-            if (userExists) return alert('用户名已存在');
+            if (data.users.some(u => u.username === username)) return alert('用户名已存在');
 
             data.users.push({ username, password, role: 'user', points: 0, lastCheckinDate: '' });
             saveSystemData(data);
@@ -312,18 +317,15 @@
             switchAuth('login');
             document.getElementById('login-username').value = username;
         };
-        // 用户登录（精准提示：用户名不存在/密码错误）
+        // 用户登录
         const userLogin = () => {
             const username = document.getElementById('login-username').value.trim();
             const password = document.getElementById('login-pwd').value.trim();
             if (!username || !password) return alert('用户名和密码不能为空！');
 
             const data = getSystemData();
-            // 先判断用户名是否存在
             const user = data.users.find(u => u.username === username);
             if (!user) return alert('用户名不存在！');
-
-            // 用户名存在，判断密码是否正确
             if (user.password !== password) return alert('密码错误！');
 
             // 登录成功
@@ -349,6 +351,29 @@
             document.getElementById('login-username').value = '';
             document.getElementById('login-pwd').value = '';
         };
+        // 新增：积分验证+扣积分解锁内容
+        const checkPointsAndOpen = (content) => {
+            const data = getSystemData();
+            const currentUser = data.currentUser;
+
+            // 判断积分是否足够
+            if (currentUser.points < content.price) {
+                return alert(`积分不足！需要${content.price}积分，当前仅${currentUser.points}积分`);
+            }
+
+            // 积分足够：扣积分+更新数据
+            currentUser.points -= content.price;
+            // 更新用户列表
+            const userIndex = data.users.findIndex(u => u.username === currentUser.username);
+            data.users[userIndex] = currentUser;
+            data.currentUser = currentUser;
+            saveSystemData(data);
+
+            // 刷新积分显示+打开链接
+            document.getElementById('user-points').textContent = currentUser.points;
+            alert(`扣减${content.price}积分，成功解锁！`);
+            window.open(content.link, '_blank');
+        };
         // 渲染前台页面
         const renderFrontPage = () => {
             const data = getSystemData();
@@ -359,7 +384,7 @@
             renderContents('all');
             renderTasks();
         };
-        // 渲染内容
+        // 渲染内容（显示积分价格+绑定积分验证事件）
         const renderContents = (type) => {
             const data = getSystemData();
             const grid = document.getElementById('content-grid');
@@ -370,14 +395,17 @@
 
             grid.innerHTML = contents.length 
                 ? contents.map(item => `
-                    <div class="content-card" onclick="window.open('${item.link}', '_blank')">
+                    <div class="content-card" onclick="checkPointsAndOpen(${JSON.stringify(item).replace(/"/g, '\'')})">
                         <div class="content-cover" style="background-image: url('${item.cover || 'https://picsum.photos/400/600'}')"></div>
-                        <div class="content-title">${item.title}</div>
+                        <div class="content-info">
+                            <div class="content-title">${item.title}</div>
+                            <div class="content-price">解锁需${item.price}积分</div>
+                        </div>
                     </div>
                 `).join('')
                 : '<div style="grid-column: 1/3; text-align: center; padding: 50px; color: #999;">暂无内容</div>';
         };
-        // 渲染积分任务（新增签到状态判断）
+        // 渲染积分任务
         const renderTasks = () => {
             const data = getSystemData();
             const currentUser = data.currentUser;
@@ -385,7 +413,6 @@
             const today = getCurrentDate();
             const hasCheckedIn = currentUser.lastCheckinDate === today;
             taskList.innerHTML = data.tasks.map((task, idx) => {
-                // 任务1为每日签到，单独处理
                 if (idx === 0) {
                     return `
                         <div class="task-item">
@@ -396,7 +423,6 @@
                         </div>
                     `;
                 }
-                // 其他任务正常渲染
                 return `
                     <div class="task-item">
                         <span>${idx+1}. ${task.name}</span>
@@ -405,26 +431,20 @@
                 `;
             }).join('');
         };
-        // 每日签到功能（+10积分，每日一次）
+        // 每日签到
         const checkin = () => {
             const data = getSystemData();
             const currentUser = data.currentUser;
             const today = getCurrentDate();
-            // 再次验证是否已签到（防止重复提交）
-            if (currentUser.lastCheckinDate === today) {
-                alert('今日已签到，请勿重复操作！');
-                return;
-            }
-            // 增加10积分，更新签到日期
+            if (currentUser.lastCheckinDate === today) return alert('今日已签到！');
+
             currentUser.points += 10;
             currentUser.lastCheckinDate = today;
-            // 更新用户列表中的数据
             const userIndex = data.users.findIndex(u => u.username === currentUser.username);
             data.users[userIndex] = currentUser;
-            data.currentUser = currentUser;
             saveSystemData(data);
+
             alert('签到成功！获得10积分～');
-            // 刷新积分和任务状态
             document.getElementById('user-points').textContent = currentUser.points;
             renderTasks();
         };
@@ -439,7 +459,7 @@
             document.getElementById('task3-link').value = data.tasks[2].link;
             renderUserList();
         };
-        // 渲染用户列表
+        // 渲染用户列表（设置积分功能正常）
         const renderUserList = () => {
             const data = getSystemData();
             const userTable = document.querySelector('#user-table tbody');
@@ -448,48 +468,58 @@
                     <td>${user.username} ${user.role === 'admin' ? '(管理员)' : ''}</td>
                     <td>${user.points}</td>
                     <td>
-                        <input type="number" placeholder="新积分" class="form-control" style="width: 100px; display: inline-block; margin-right: 10px;" id="points-${user.username}">
+                        <input type="number" placeholder="新积分" class="form-control" style="width: 100px; margin-right: 10px;" id="points-${user.username}" min="0">
                         <button class="set-points-btn" onclick="setUserPoints('${user.username}')">设置</button>
                     </td>
                 </tr>
             `).join('');
         };
-        // 设置用户积分
+        // 设置用户积分（修复输入验证）
         const setUserPoints = (username) => {
             const newPoints = parseInt(document.getElementById(`points-${username}`).value);
-            if (isNaN(newPoints) || newPoints < 0) return alert('请输入有效积分（非负整数）！');
+            if (isNaN(newPoints) || newPoints < 0) return alert('请输入非负整数！');
 
             const data = getSystemData();
             const userIndex = data.users.findIndex(u => u.username === username);
             data.users[userIndex].points = newPoints;
             if (data.currentUser?.username === username) data.currentUser.points = newPoints;
             saveSystemData(data);
+
             alert('积分设置成功！');
             renderUserList();
             if (document.getElementById('front-end').style.display === 'block') {
                 document.getElementById('user-points').textContent = newPoints;
             }
         };
-        // 上传内容
+        // 上传内容（新增积分价格存储）
         const uploadContent = () => {
             const title = document.getElementById('content-title').value.trim();
             const type = document.getElementById('content-type').value;
             const cover = document.getElementById('content-cover').value.trim();
+            const price = parseInt(document.getElementById('content-price').value);
             const link = document.getElementById('content-link').value.trim();
-            if (!title || !link) return alert('标题和链接不能为空！');
+
+            // 验证必填项
+            if (!title || !link || isNaN(price) || price < 1) {
+                return alert('标题、链接、积分价格（≥1）不能为空！');
+            }
 
             const data = getSystemData();
-            data.contents.push({ title, type, cover, link });
+            data.contents.push({ title, type, cover, price, link });
             saveSystemData(data);
-            alert('上传成功！');
+
+            alert('上传成功！内容需' + price + '积分解锁');
+            // 清空输入框
             document.getElementById('content-title').value = '';
             document.getElementById('content-cover').value = '';
+            document.getElementById('content-price').value = 10;
             document.getElementById('content-link').value = '';
+            // 刷新前台内容（如果前台打开）
             if (document.getElementById('front-end').style.display === 'block') {
                 renderContents(document.querySelector('.category-btn.active').dataset.type);
             }
         };
-        // 保存任务设置（签到任务链接禁用编辑）
+        // 保存任务设置
         const saveTasks = () => {
             const task1Name = document.getElementById('task1-name').value.trim() || '每日签到';
             const task2Name = document.getElementById('task2-name').value.trim() || '邀请好友';
@@ -499,7 +529,7 @@
 
             const data = getSystemData();
             data.tasks = [
-                { name: task1Name, link: '#' }, // 签到任务链接固定为#
+                { name: task1Name, link: '#' },
                 { name: task2Name, link: task2Link },
                 { name: task3Name, link: task3Link }
             ];
@@ -507,7 +537,7 @@
             alert('任务保存成功！');
             if (document.getElementById('front-end').style.display === 'block') renderTasks();
         };
-        // 页面切换：资源首页/积分任务页
+        // 页面切换
         const showFrontPage = () => {
             document.getElementById('content-grid').style.display = 'grid';
             document.querySelector('.category-nav').style.display = 'flex';
